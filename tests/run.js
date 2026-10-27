@@ -1,0 +1,271 @@
+// ทดสอบทั้งระบบด้วย Playwright + mock Firebase
+// ใช้: node tests/run.js   (ต้องรัน python3 build.py ก่อน)
+const { chromium, devices } = require('playwright');
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.resolve(__dirname, '..');
+const OUT = process.env.SHOTS || path.join(__dirname, 'shots');
+fs.mkdirSync(OUT, { recursive: true });
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json' };
+const server = http.createServer((req, res) => {
+  let p = decodeURIComponent(req.url.split('?')[0]).replace(/^\/PNM07\//, '/');
+  if (p === '/' || p === '') p = '/index.html';
+  const f = path.join(ROOT, p);
+  if (!f.startsWith(ROOT) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end('nf'); }
+  res.writeHead(200, { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream' });
+  fs.createReadStream(f).pipe(res);
+});
+
+const BASE = 'http://localhost:8790/PNM07/';
+const mock = n => fs.readFileSync(path.join(__dirname, 'mock', n), 'utf8');
+let failures = 0;
+const ok = (cond, msg) => { console.log((cond ? '  ✓ ' : '  ✗ ') + msg); if (!cond) failures++; };
+
+(async () => {
+  await new Promise(r => server.listen(8790, r));
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ ...devices['iPhone 13'], viewport: { width: 390, height: 844 }, geolocation: { latitude: 13.8199, longitude: 100.0621 }, permissions: ['geolocation'], serviceWorkers: 'block' });
+  const errors = [];
+  await ctx.route('https://www.gstatic.com/firebasejs/**', r => {
+    const name = r.request().url().split('/').pop();
+    r.fulfill({ contentType: 'text/javascript', body: mock(name) });
+  });
+  await ctx.route('**/firebase-config.js', r => r.fulfill({ contentType: 'text/javascript', body: 'export const firebaseConfig = { apiKey: "test", projectId: "test" };' }));
+  await ctx.route(/tile\.openstreetmap\.org|fonts\.(googleapis|gstatic)\.com/, r => r.abort());
+  const p = await ctx.newPage();
+  p.on('pageerror', e => errors.push('pageerror: ' + e.message));
+  p.on('console', m => { if (m.type() === 'error' && !/ERR_FAILED|Failed to load resource/.test(m.text())) errors.push('console: ' + m.text()); });
+  const shot = n => p.screenshot({ path: path.join(OUT, n + '.png'), fullPage: false });
+  const fillSheet = async (sel, v) => p.fill(`.sheet ${sel}`, v);
+  const photo = path.join(OUT, 'photo.jpg');
+  if (!fs.existsSync(photo)) {
+    // JPEG เล็ก ๆ สำหรับทดสอบ
+    const b64 = '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=';
+    fs.writeFileSync(photo, Buffer.from(b64, 'base64'));
+  }
+
+  console.log('1) ผู้ดูแลคนแรก');
+  await p.goto(BASE);
+  await p.evaluate(() => localStorage.clear());
+  await p.goto(BASE);
+  await p.waitForSelector('#login');
+  await p.click('#lg-toggle');
+  await p.fill('[name=name]', 'ร.ต.อ. ผู้ดูแล ทดสอบ');
+  await p.fill('[name=email]', 'admin@test.go.th');
+  await p.fill('[name=pw]', 'secret123');
+  await p.click('#lg-btn');
+  await p.waitForSelector('#btn-claim');
+  await shot('01-claim');
+  await p.click('#btn-claim');
+  await p.waitForSelector('.tabs');
+  await p.waitForSelector('.count, .empty');
+  ok(await p.isVisible('#fab'), 'แอดมินเห็นปุ่ม + เก็บตัวอย่างใหม่');
+  ok((await p.textContent('#sync')).includes('ซิงก์แล้ว'), 'สถานะซิงก์แล้ว');
+
+  console.log('2) ตั้งค่า: เชิญผู้ใช้ และเกณฑ์');
+  await p.click('a[data-tab=settings]');
+  await p.waitForSelector('#crit-list table');
+  ok((await p.textContent('#crit-list')).includes('Diesel (B7)'), 'แสดงตารางเกณฑ์ตามประกาศ');
+  for (const [email, role] of [['officer@test.go.th', 'officer'], ['boss@test.go.th', 'commander']]) {
+    await p.fill('#invite-form [name=email]', email);
+    await p.selectOption('#invite-form [name=role]', role);
+    await p.click('#invite-form button[type=submit]');
+    await p.waitForFunction(e => document.querySelector('#invites')?.textContent.includes(e), email);
+  }
+  ok(true, 'เชิญเจ้าหน้าที่และผู้บังคับบัญชาแล้ว');
+  await shot('02-settings');
+
+  console.log('3) เคสใหม่ + ตัวอย่าง (วันนี้)');
+  await p.click('a[data-tab=cases]');
+  await p.click('#fab');
+  await p.waitForSelector('.sheet #case-form');
+  await fillSheet('[name=station]', 'สถานีทดสอบ 99 ม.1');
+  await p.selectOption('.sheet #sel-prov', 'นครปฐม');
+  await p.selectOption('.sheet #sel-dist', { index: 1 });
+  await p.selectOption('.sheet #sel-sub', { index: 1 });
+  await p.click('.sheet #btn-gps');
+  await p.waitForFunction(() => document.querySelector('.sheet [name=lat]').value !== '');
+  await p.setInputFiles('.sheet #case-file', photo);
+  await p.waitForSelector('.sheet #case-photos .ph img[src]');
+  ok(await p.isVisible('.sheet .leaflet-marker-icon'), 'หมุดบนแผนที่ในฟอร์ม');
+  await shot('03-case-form');
+  await p.click('.sheet #case-form button[type=submit]');
+  await p.waitForSelector('.sheet #sample-form');
+  await p.selectOption('.sheet #sel-fuel', 'Gasohol 95');
+  await fillSheet('[name=r_ron]', '93.1');
+  await fillSheet('[name=r_ethanol]', '9.4');
+  await fillSheet('[name=sealNo]', 'S-000123');
+  await p.selectOption('.sheet [name=color]', 'ส้ม');
+  await p.setInputFiles('.sheet [data-file=ron]', photo);
+  await p.waitForSelector('.sheet [data-pick=ron] img[src]');
+  await shot('04-sample-form');
+  await p.click('.sheet #sample-form button[type=submit]');
+  await p.waitForSelector('.sheet-wrap', { state: 'detached' });
+  await p.click('#fab');
+  await p.waitForSelector('.sheet #sample-form');
+  await p.selectOption('.sheet #sel-fuel', 'Diesel (B7)');
+  await fillSheet('[name=r_api]', '0.8231');
+  await fillSheet('[name=r_flash]', '65.8');
+  await fillSheet('[name=r_sulfur]', '5.46');
+  await fillSheet('[name=r_fame]', '6.0');
+  await p.click('.sheet #sample-form button[type=submit]');
+  await p.waitForSelector('.sheet-wrap', { state: 'detached' });
+  await p.waitForFunction(() => document.querySelectorAll('.sample').length === 2);
+  const caseText = await p.textContent('#view');
+  ok(caseText.includes('ไม่เป็นไปตามเกณฑ์ 1 รายการ'), 'G95 RON 93.1 ไม่เป็นไปตามเกณฑ์ (≥95)');
+  ok(caseText.includes('เป็นไปตามเกณฑ์ทุกรายการที่ตรวจ (4)'), 'B7 FAME 6.0 ผ่านเกณฑ์หลัก 5–7 (วันนี้)');
+  ok(caseText.includes('S-000123'), 'แสดงเลขซีล');
+  ok(!/\d{2}:\d{2} น\./.test(caseText), 'ไม่มีเวลาในหน้าเคส (บันทึกเฉพาะวันที่)');
+  await shot('05-case');
+
+  console.log('4) ตรวจ Hash, ส่งมอบ, ล็อก');
+  await p.click('button.linkbtn[data-photo]');
+  await p.click('[data-verify]');
+  await p.waitForSelector('.verify-out span');
+  ok((await p.textContent('.verify-out')).includes('ตรงกับ'), 'ค่า SHA-256 ตรงกัน');
+  await p.click('.modal [data-close]');
+  await p.click('#btn-custody');
+  await p.waitForSelector('.sheet #cus-form');
+  await fillSheet('[name=to]', 'ด.ต. ผู้รับ');
+  await p.waitForTimeout(350);
+  await p.locator('.sheet #sig-from').scrollIntoViewIfNeeded();
+  const bb = await (await p.$('.sheet #sig-from')).boundingBox();
+  await p.mouse.move(bb.x + 20, bb.y + 40); await p.mouse.down(); await p.mouse.move(bb.x + 150, bb.y + 90, { steps: 6 }); await p.mouse.up();
+  await p.click('.sheet #cus-form button[type=submit]');
+  await p.waitForSelector('.timeline li');
+  ok(await p.isVisible('.sigs img'), 'แสดงลายมือชื่อในการส่งมอบ');
+  await p.click('#btn-lock');
+  await p.click('.modal [data-ok]');
+  await p.waitForFunction(() => document.querySelector('.case-head .pill')?.textContent.includes('บันทึกผลแล้ว'));
+  ok(true, 'ล็อกเคสแล้ว');
+  const caseHash = await p.evaluate(() => location.hash);
+
+  console.log('5) เกณฑ์ตามช่วงวันที่ (เม.ย. 2569: FAME 6.6–7.0)');
+  await p.click('a[data-tab=cases]');
+  await p.click('#fab');
+  await p.waitForSelector('.sheet #case-form');
+  await fillSheet('[name=date]', '2026-04-01');
+  await p.dispatchEvent('.sheet [name=date]', 'change');
+  ok((await p.inputValue('.sheet [name=caseNo]')).startsWith('SCDC7-69-04-'), 'รันเลขเคสตามเดือนของวันที่');
+  await fillSheet('[name=station]', 'สถานีทดสอบ เม.ย.');
+  await fillSheet('[name=lat]', '13.6'); await fillSheet('[name=lng]', '99.8');
+  await p.click('.sheet #case-form button[type=submit]');
+  await p.waitForSelector('.sheet #sample-form');
+  await p.selectOption('.sheet #sel-fuel', 'Diesel (B7)');
+  ok((await p.textContent('.sheet [data-test=fame]')).includes('6.6–7'), 'ฟอร์มแสดงเกณฑ์ FAME 6.6–7 สำหรับวันที่ 1 เม.ย. 2569');
+  await fillSheet('[name=r_fame]', '6.0');
+  await p.click('.sheet #sample-form button[type=submit]');
+  await p.waitForSelector('.sheet-wrap', { state: 'detached' });
+  await p.waitForSelector('.sample');
+  ok((await p.textContent('#view')).includes('ต่ำกว่าเกณฑ์'), 'FAME 6.0 ต่ำกว่าเกณฑ์ในช่วง 14 มี.ค.–13 ก.ย. 2569');
+
+  console.log('6) แผนที่ สถิติ รายงาน');
+  await p.click('a[data-tab=map]');
+  await p.waitForSelector('#map-main .leaflet-interactive');
+  ok((await p.textContent('#map-count')).includes('แสดง 2 จาก 2'), 'แผนที่แสดงหมุดครบ 2 เคส');
+  await shot('06-map');
+  await p.click('#map-main .leaflet-interactive >> nth=0', { force: true });
+  await p.waitForSelector('.leaflet-popup-content');
+  ok((await p.textContent('.leaflet-popup-content')).includes('เปิดเคส'), 'ป๊อปอัปหมุดมีลิงก์เปิดเคส');
+  await p.click('a[data-tab=stats]');
+  await p.waitForSelector('.kpis');
+  ok((await p.textContent('.kpis')).includes('2'), 'สถิติแสดงจำนวนเคส');
+  await shot('07-stats');
+  await p.goto(BASE + caseHash.replace('case-', 'report-'));
+  await p.waitForSelector('.report');
+  await p.waitForTimeout(400);
+  ok((await p.textContent('.report')).includes('เกณฑ์อ้างอิง'), 'รายงานระบุประกาศที่ใช้เทียบเกณฑ์');
+  await p.screenshot({ path: path.join(OUT, '08-report.png'), fullPage: true });
+
+  console.log('7) ผู้ดูแลแก้เกณฑ์');
+  await p.goto(BASE + '#settings');
+  await p.waitForSelector('#crit-list [data-crit]');
+  await p.click('#crit-add');
+  await p.waitForSelector('.sheet #crit-form');
+  await p.selectOption('.sheet [name=fuel]', 'Diesel (B7)');
+  await p.selectOption('.sheet [name=test]', 'fame');
+  await fillSheet('[name=min]', '6.6'); await fillSheet('[name=max]', '7');
+  await fillSheet('[name=from]', '2026-10-01');
+  await fillSheet('[name=ref]', 'ทดสอบ ประกาศใหม่');
+  await p.click('.sheet #crit-form button[type=submit]');
+  await p.waitForFunction(() => document.querySelector('#crit-list').textContent.includes('ทดสอบ ประกาศใหม่'));
+  await p.goto(BASE + caseHash);
+  await p.waitForSelector('.sample');
+  ok((await p.textContent('#view')).includes('ไม่เป็นไปตามเกณฑ์ 1 รายการ') && (await p.textContent('#view')).match(/ไม่เป็นไปตามเกณฑ์/g).length >= 2, 'เกณฑ์ใหม่ (ต.ค. 2569) มีผลกับเคสวันนี้: B7 FAME 6.0 ไม่ผ่าน');
+  ok(await p.isVisible('#btn-unlock'), 'แอดมินเห็นปุ่มปลดล็อก');
+
+  console.log('8) เจ้าหน้าที่ (รับเชิญ)');
+  await p.goto(BASE + '#settings');
+  await p.waitForSelector('#btn-logout');
+  await p.click('#btn-logout');
+  await p.waitForSelector('#login');
+  await p.click('#lg-toggle');
+  await p.fill('[name=name]', 'ด.ต. เจ้าหน้าที่ ทดสอบ'); await p.fill('[name=email]', 'officer@test.go.th'); await p.fill('[name=pw]', 'secret123');
+  await p.click('#lg-btn');
+  await p.waitForSelector('#btn-send');
+  await p.click('#btn-send');
+  await p.click('#btn-done');
+  await p.waitForTimeout(200);
+  ok(await p.isVisible('#btn-done'), 'ยังไม่ยืนยันอีเมล: ยังเข้าไม่ได้');
+  await p.evaluate(() => window.__mockVerify('officer@test.go.th'));
+  await p.click('#btn-done');
+  await p.waitForSelector('.tabs').catch(async e => { await shot('dbg-officer'); console.log(await p.textContent('#app')); throw e; });
+  await p.waitForSelector('.case').catch(async e => { await shot('dbg-officer2'); console.log(await p.textContent('#app'), errors); throw e; });
+  ok(await p.isVisible('#fab'), 'เจ้าหน้าที่เห็นปุ่ม +');
+  await p.goto(BASE + caseHash); await p.waitForSelector('.case-head');
+  ok(!(await p.isVisible('#btn-edit')) && !(await p.isVisible('#btn-unlock')), 'เคสล็อก: เจ้าหน้าที่แก้ไข/ปลดล็อกไม่ได้');
+  await p.goto(BASE + '#settings'); await p.waitForSelector('#settings-root');
+  ok(!(await p.isVisible('#invite-form')) && !(await p.isVisible('#crit-add')), 'เจ้าหน้าที่ไม่เห็นส่วนผู้ดูแลระบบ');
+
+  console.log('9) ออฟไลน์');
+  await ctx.setOffline(true);
+  await p.evaluate(() => { window.__offline = true; window.dispatchEvent(new Event('offline')); });
+  await p.click('a[data-tab=cases]');
+  await p.click('#fab');
+  await p.waitForSelector('.sheet #case-form');
+  await fillSheet('[name=station]', 'สถานีออฟไลน์');
+  await p.click('.sheet #case-form button[type=submit]');
+  await p.waitForSelector('.sheet #sample-form');
+  await p.click('.sheet [data-sheet-close]');
+  await p.waitForTimeout(300);
+  const syncOff = await p.textContent('#sync');
+  ok(/ออฟไลน์ · รอส่ง \d/.test(syncOff), 'แถบสถานะ: ' + syncOff);
+  await shot('09-offline');
+  await ctx.setOffline(false);
+  await p.evaluate(() => { window.__goOnline(); window.dispatchEvent(new Event('online')); });
+  await p.waitForFunction(() => document.querySelector('#sync').textContent.includes('ซิงก์แล้ว'));
+  ok(true, 'กลับมาออนไลน์: ซิงก์แล้ว');
+
+  console.log('10) ผู้บังคับบัญชา (ดูอย่างเดียว)');
+  await p.goto(BASE + '#settings'); await p.waitForSelector('#btn-logout');
+  await p.click('#btn-logout'); await p.waitForSelector('#login');
+  await p.click('#lg-toggle');
+  await p.fill('[name=name]', 'พ.ต.อ. ผู้บังคับบัญชา'); await p.fill('[name=email]', 'boss@test.go.th'); await p.fill('[name=pw]', 'secret123');
+  await p.click('#lg-btn');
+  await p.waitForSelector('#btn-done');
+  await p.evaluate(() => window.__mockVerify('boss@test.go.th'));
+  await p.click('#btn-done');
+  await p.waitForSelector('.case');
+  ok(!(await p.isVisible('#fab')), 'ผู้บังคับบัญชาไม่เห็นปุ่ม +');
+  await p.goto(BASE + caseHash); await p.waitForSelector('.case-head');
+  ok(!(await p.isVisible('#btn-custody')) && !(await p.isVisible('[data-edit-sample]')), 'ผู้บังคับบัญชาไม่มีปุ่มแก้ไข/ส่งมอบ');
+  ok(await p.isVisible('.sample'), 'ผู้บังคับบัญชาเห็นผลตรวจ');
+  await p.click('a[data-tab=map]'); await p.waitForSelector('#map-main .leaflet-interactive');
+  ok(true, 'ผู้บังคับบัญชาเห็นแผนที่');
+
+  console.log('11) ตรวจรวม');
+  const denied = await p.evaluate(() => window.__denied);
+  ok(denied.length === 0, 'ไม่มีการเขียนที่กฎความปลอดภัยปฏิเสธ ' + JSON.stringify(denied));
+  const ow = await p.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  ok(ow <= 0, 'ไม่มีการเลื่อนแนวนอน');
+  await p.emulateMedia({ colorScheme: 'dark' });
+  await p.goto(BASE + '#cases'); await p.waitForSelector('.case');
+  await shot('10-dark');
+  ok(errors.length === 0, 'ไม่มีข้อผิดพลาด JavaScript ' + errors.join(' | '));
+
+  await browser.close(); server.close();
+  console.log(failures ? `\n${failures} รายการไม่ผ่าน` : '\nผ่านทั้งหมด');
+  process.exit(failures ? 1 : 0);
+})().catch(async e => { console.error(e); server.close(); process.exit(1); });
