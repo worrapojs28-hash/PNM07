@@ -88,7 +88,7 @@ function updateSync() {
 function updateBrand() { const el = $('#brand-unit'); if (el) el.textContent = unitName(); }
 
 function showLoading(msg = 'กำลังโหลด…') {
-  $('#app').innerHTML = `<main class="center-screen"><div class="brand big"><span class="mark" aria-hidden="true"></span><span><b>บันทึกตัวอย่างน้ำมัน</b></span></div><p class="muted">${esc(msg)}</p></main>`;
+  $('#app').innerHTML = `<main class="center-screen"><div class="brand big"><img class="brand-logo" src="icons/logo-256.png" alt="ตราหน่วยงาน" width="88" height="101"><span><b>บันทึกตัวอย่างน้ำมัน</b></span></div><p class="muted">${esc(msg)}</p></main>`;
 }
 function viewError(msg) {
   $('#app').innerHTML = `<main class="center-screen"><h2>ใช้งานไม่ได้ในขณะนี้</h2><p>${esc(msg)}</p>

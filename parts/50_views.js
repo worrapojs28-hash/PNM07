@@ -2,7 +2,7 @@
 function shell() {
   $('#app').innerHTML = `
   <header class="top"><div class="top-in">
-    <a href="#cases" class="brand"><span class="mark" aria-hidden="true"></span><span><b>บันทึกตัวอย่างน้ำมัน</b><small id="brand-unit">${esc(unitName())}</small></span></a>
+    <a href="#cases" class="brand"><img class="brand-logo" src="icons/logo-96.png" alt="ตราหน่วยงาน" width="36" height="41"><span><b>บันทึกตัวอย่างน้ำมัน</b><small id="brand-unit">${esc(unitName())}</small></span></a>
     <span id="sync" class="sync">…</span>
   </div></header>
   <main id="view" class="wrap"></main>
@@ -257,7 +257,7 @@ function viewReport(view, id) {
   view.innerHTML = `
     <div class="no-print row between"><a href="#case-${esc(id)}" class="back">‹ กลับไปเคส</a><button class="btn primary" id="btn-print">พิมพ์ / บันทึก PDF</button></div>
     <article class="report">
-      <header class="r-head"><b>${esc(unitName())}</b><h1>บันทึกการตรวจเก็บตัวอย่างน้ำมันเชื้อเพลิง</h1></header>
+      <header class="r-head"><img class="r-logo" src="icons/logo-256.png" alt=""><b>${esc(unitName())}</b><h1>บันทึกการตรวจเก็บตัวอย่างน้ำมันเชื้อเพลิง</h1></header>
       <table class="r-tbl"><tbody>
         <tr><th>เลขเคส</th><td class="mono">${esc(c.caseNo)}</td><th>สถานะ</th><td>${esc(c.status || STATUS.WAIT)}${c.locked ? ' (ล็อก)' : ''}</td></tr>
         <tr><th>วันที่เก็บ</th><td>${thDate(c.date, true)}</td><th>ผู้เก็บ</th><td>${esc(c.collector || c.createdByName || '—')}</td></tr>

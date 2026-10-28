@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------- เข้าสู่ระบบ / ผู้ดูแลคนแรก / คำเชิญ
-const brandBlock = () => `<div class="brand big"><span class="mark" aria-hidden="true"></span><span><b>บันทึกตัวอย่างน้ำมัน</b><small>ระบบบันทึกการตรวจเก็บตัวอย่างน้ำมันเชื้อเพลิง</small></span></div>`;
+const brandBlock = () => `<div class="brand big"><img class="brand-logo" src="icons/logo-256.png" alt="ตราหน่วยงาน" width="88" height="101"><span><b>บันทึกตัวอย่างน้ำมัน</b><small>ระบบบันทึกการตรวจเก็บตัวอย่างน้ำมันเชื้อเพลิง</small></span></div>`;
 
 function viewSetup() {
   $('#app').innerHTML = `<main class="center-screen narrow">${brandBlock()}
