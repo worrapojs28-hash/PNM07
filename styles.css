@@ -403,3 +403,14 @@ tr.clickable:hover td, tr.clickable:focus td { background: var(--sunken); }
 .r-head { flex-direction: column; gap: 2px; }
 #toasts { bottom: calc(var(--tab-h) + 80px + env(safe-area-inset-bottom, 0px)); }
 .sheet-open #toasts { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+
+/* iPhone Safari: ช่องวันที่มีความกว้างขั้นต่ำของตัวเอง ทำให้ล้นกรอบ จึงปิดหน้าตาแบบระบบและให้หดได้ */
+input[type="date"], input[type="time"] {
+  -webkit-appearance: none; appearance: none; display: block;
+  min-width: 0; max-width: 100%; width: 100%; text-align: left; line-height: 1.4;
+}
+input[type="date"]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+input[type="date"]::-webkit-calendar-picker-indicator { margin-left: 4px; }
+fieldset { min-width: 0; }
+.form, .form > *, .field { min-width: 0; max-width: 100%; }
+.sheet-body { overflow-x: hidden; }

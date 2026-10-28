@@ -1,6 +1,6 @@
 // Service worker: เก็บไฟล์แอปไว้ในเครื่องเพื่อเปิดใช้ได้ขณะออฟไลน์
 // ไฟล์ของแอป: เครือข่ายก่อน (ได้เวอร์ชันใหม่เสมอเมื่อออนไลน์)  · gstatic/ฟอนต์: ใช้ของในเครื่องแล้วอัปเดตเบื้องหลัง
-const VERSION = '2026.10.28-0731';
+const VERSION = '2026.10.28-2212';
 const SHELL = ['./', 'index.html', 'app.js', 'styles.css', 'firebase-config.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/logo-96.png', 'icons/logo-256.png', 'icons/favicon-64.png', 'icons/apple-touch-icon-180.png', 'icons/maskable-512.png',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css',
